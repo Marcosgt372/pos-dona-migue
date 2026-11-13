@@ -74,8 +74,8 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 // PUT: Actualizar producto / plato
 export const PUT: APIRoute = async ({ request, cookies }) => {
   try {
-    const sesion = await obtenerContextoSesion(cookies);
-    if (!sesion.autenticado || !sesion.esAdminOSupervisor) {
+    const usuario = await verificarUsuarioPOS(cookies);
+    if (!usuario || (usuario.rol !== 'ADMIN' && usuario.rol !== 'SUPERVISOR')) {
       return new Response(
         JSON.stringify({ ok: false, error: 'No autorizado. Se requieren permisos de administrador.' }),
         { status: 403, headers: { 'Content-Type': 'application/json' } }
@@ -84,7 +84,7 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
 
     const body = await request.json();
     const id = Number(body.id);
-    if (!id) {
+    if (!Number.isSafeInteger(id) || id <= 0) {
       return new Response(
         JSON.stringify({ ok: false, error: 'ID de producto inválido.' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
@@ -98,6 +98,28 @@ export const PUT: APIRoute = async ({ request, cookies }) => {
     if (body.precio_base !== undefined) updateData.precio_base = Number(body.precio_base);
     if (body.imagen_url !== undefined) updateData.imagen_url = body.imagen_url ? body.imagen_url.trim() : null;
     if (body.activo !== undefined) updateData.activo = Boolean(body.activo);
+
+    if (body.stock_actual !== undefined || body.stock_anterior !== undefined) {
+      const cantidades = [body.stock_actual, body.stock_anterior];
+      if (cantidades.some((cantidad) => !Number.isInteger(cantidad) || cantidad < 0 || cantidad > 2_147_483_647)) {
+        return Response.json({ ok: false, error: 'Ingresa una cantidad entera mayor o igual a cero.' }, { status: 400 });
+      }
+
+      const { data, error } = await supabaseAdminServer.rpc('editar_producto_con_stock_pos', {
+        p_usuario_id: usuario.id,
+        p_sucursal_id: usuario.sucursalId,
+        p_producto_id: id,
+        p_cambios: updateData,
+        p_stock_anterior: body.stock_anterior,
+        p_stock_actual: body.stock_actual,
+      });
+
+      if (error?.code === 'PT409') {
+        return Response.json({ ok: false, error: error.message }, { status: 409 });
+      }
+      if (error) throw error;
+      return Response.json({ ok: true, data });
+    }
 
     const { data: producto, error } = await supabaseAdminServer
       .from('productos')
