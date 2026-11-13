@@ -1,14 +1,15 @@
 import type { APIRoute } from 'astro';
 import { supabaseAdminServer } from '../../../core/supabaseAdminServer';
 import { obtenerContextoSesion } from '../../../core/sessionContext';
+import { verificarUsuarioPOS } from '../../../core/verifiedPosUser';
 
 export const prerender = false;
 
 // POST: Crear producto / plato
 export const POST: APIRoute = async ({ request, cookies }) => {
   try {
-    const sesion = await obtenerContextoSesion(cookies);
-    if (!sesion.autenticado || !sesion.esAdminOSupervisor) {
+    const usuario = await verificarUsuarioPOS(cookies);
+    if (!usuario || (usuario.rol !== 'ADMIN' && usuario.rol !== 'SUPERVISOR')) {
       return new Response(
         JSON.stringify({ ok: false, error: 'No autorizado. Se requieren permisos de administrador.' }),
         { status: 403, headers: { 'Content-Type': 'application/json' } }
@@ -22,6 +23,14 @@ export const POST: APIRoute = async ({ request, cookies }) => {
     const precioBase = Number(body.precio_base) || 0;
     const imagenUrl = body.imagen_url ? body.imagen_url.trim() : null;
     const activo = body.activo !== false;
+    const stockInicial = body.stock_inicial === undefined ? 0 : body.stock_inicial;
+
+    if (!Number.isInteger(stockInicial) || stockInicial < 0 || stockInicial > 2_147_483_647) {
+      return new Response(
+        JSON.stringify({ ok: false, error: 'El stock inicial debe ser un número entero entre 0 y 2.147.483.647.' }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     if (!nombre) {
       return new Response(
@@ -37,43 +46,18 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       );
     }
 
-    // 1. Insertar el producto en la tabla `productos`
-    const { data: producto, error: prodError } = await supabaseAdminServer
-      .from('productos')
-      .insert({
-        categoria_id: categoriaId,
-        nombre,
-        descripcion: descripcion || null,
-        precio_base: precioBase,
-        imagen_url: imagenUrl,
-        activo,
-      })
-      .select('*, categorias ( nombre )')
-      .single();
-
-    if (prodError) throw prodError;
-
-    // 2. Inicializar inventario para todas las sucursales existentes para que aparezca de inmediato en los POS
-    try {
-      const { data: sucursales } = await supabaseAdminServer
-        .from('sucursales')
-        .select('id');
-
-      if (sucursales && sucursales.length > 0) {
-        const inventariosNuevos = sucursales.map((s) => ({
-          sucursal_id: s.id,
-          producto_id: producto.id,
-          stock_actual: 0,
-          stock_minimo: 5,
-        }));
-
-        await supabaseAdminServer
-          .from('inventario')
-          .upsert(inventariosNuevos, { onConflict: 'sucursal_id,producto_id' });
-      }
-    } catch (invErr) {
-      console.warn('Aviso al inicializar inventario:', invErr);
-    }
+    const { data: producto, error } = await supabaseAdminServer.rpc('crear_producto_con_stock_pos', {
+      p_usuario_id: usuario.id,
+      p_sucursal_id: usuario.sucursalId,
+      p_categoria_id: categoriaId,
+      p_nombre: nombre,
+      p_descripcion: descripcion || null,
+      p_precio_base: precioBase,
+      p_imagen_url: imagenUrl,
+      p_activo: activo,
+      p_stock_inicial: stockInicial,
+    });
+    if (error) throw error;
 
     return new Response(JSON.stringify({ ok: true, data: producto }), {
       status: 201,

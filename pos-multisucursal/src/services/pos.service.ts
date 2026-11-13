@@ -320,6 +320,7 @@ export const PosService = {
         precio_base: number;
         imagen_url?: string;
         activo: boolean;
+        stock_inicial?: number;
     }) {
         const method = params.id ? 'PUT' : 'POST';
         const res = await fetch('/api/catalogo/productos', {

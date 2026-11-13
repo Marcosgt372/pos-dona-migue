@@ -46,8 +46,9 @@ Feel free to check [our documentation](https://docs.astro.build) or jump into ou
 
 1. En el SQL Editor del proyecto Supabase del POS, ejecuta [la migración de inventario y ventas](supabase/migracion-inventario-ventas.sql). Usa las RPC y tablas que ya existen en ese proyecto y requiere la migración de `detalle_pedidos.tipo_corte`.
 2. Ejecuta [la corrección de cobro](supabase/migracion-inventario-cobro.sql). La comanda queda pendiente hasta que se registre el pago.
-3. Despliega la web después de aplicar las dos migraciones. Web y Android comparten las RPC de creación, edición, cobro y anulación.
-4. Verifica las cantidades físicas por sucursal y usa **Admin → Dashboard → Ajustar stock** para registrar las diferencias iniciales. Las migraciones conservan los saldos actuales y el historial.
+3. Ejecuta [la migración de stock inicial](supabase/migracion-stock-inicial-producto.sql) para habilitar la creación de productos con existencias en el catálogo web.
+4. Despliega la web después de aplicar las migraciones. Web y Android comparten las RPC de creación, edición, cobro y anulación.
+5. Verifica las cantidades físicas por sucursal y usa **Admin → Dashboard → Ajustar stock** para registrar las diferencias iniciales. Las migraciones conservan los saldos actuales y el historial.
 
 La comanda descuenta existencias al guardarse. La edición aplica la diferencia de unidades, y la anulación devuelve las unidades descontadas que consten en el Kardex si se elige devolver el stock. Si el pago queda pendiente, la comanda conserva su reserva hasta que se cobre o se anule.
 

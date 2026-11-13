@@ -56,6 +56,7 @@ export default function CatalogoManager({
   const [formNombre, setFormNombre] = useState('');
   const [formDescripcion, setFormDescripcion] = useState('');
   const [formPrecio, setFormPrecio] = useState('');
+  const [formStockInicial, setFormStockInicial] = useState('0');
   const [formCategoriaId, setFormCategoriaId] = useState<number>(categorias[0]?.id || 1);
   const [formActivo, setFormActivo] = useState(true);
 
@@ -78,6 +79,7 @@ export default function CatalogoManager({
     setFormNombre('');
     setFormDescripcion('');
     setFormPrecio('');
+    setFormStockInicial('0');
     setFormCategoriaId(categorias[0]?.id || 1);
     setFormActivo(true);
     setModalProductoAbierto(true);
@@ -111,6 +113,11 @@ export default function CatalogoManager({
 
   const guardarProductoHandler = async (e: React.SyntheticEvent) => {
     e.preventDefault();
+    const stockInicial = Number(formStockInicial);
+    if (!productoEditando && (!Number.isInteger(stockInicial) || stockInicial < 0 || stockInicial > 2_147_483_647)) {
+      toast.error('El stock inicial debe ser un número entero entre 0 y 2.147.483.647.');
+      return;
+    }
     setGuardando(true);
 
     const promesa = async () => {
@@ -121,6 +128,7 @@ export default function CatalogoManager({
         descripcion: formDescripcion.trim(),
         precio_base: parseFloat(formPrecio) || 0,
         activo: formActivo,
+        stock_inicial: productoEditando ? undefined : stockInicial,
       });
 
       const catObj = categorias.find((c) => c.id === Number(formCategoriaId));
@@ -153,7 +161,7 @@ export default function CatalogoManager({
             descripcion: formDescripcion.trim(),
             precio_base: parseFloat(formPrecio) || 0,
             activo: formActivo,
-            stock_actual: 0,
+            stock_actual: saved.stock_actual,
           },
         ]);
       }
@@ -555,6 +563,25 @@ export default function CatalogoManager({
               />
             </Field>
           </div>
+
+          {!productoEditando && (
+            <Field
+              etiqueta="Stock inicial (unidades)"
+              htmlFor="prod-stock-inicial"
+              ayuda="Se registra en el inventario de tu sucursal."
+            >
+              <Input
+                id="prod-stock-inicial"
+                type="number"
+                min="0"
+                max="2147483647"
+                step="1"
+                value={formStockInicial}
+                onChange={(e) => setFormStockInicial(e.target.value)}
+                className="font-mono tnum"
+              />
+            </Field>
+          )}
 
           <Field
             etiqueta="Descripción o guarniciones"
