@@ -8,4 +8,5 @@ dist/
 *.log
 .agents/
 skills-lock.json
-
+.temp/
+**/supabase/.temp/

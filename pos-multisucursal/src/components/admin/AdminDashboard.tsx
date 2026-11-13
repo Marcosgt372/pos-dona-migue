@@ -46,7 +46,7 @@ const tonoEstado = {
 } as const;
 
 function esEntrada(tipo: string) {
-  return tipo.includes('ENTRADA') || tipo.includes('DEVOLUCION');
+  return tipo.startsWith('ENTRADA') || tipo === 'AJUSTE_POSITIVO';
 }
 
 function hora(iso: string) {
@@ -58,10 +58,49 @@ export default function AdminDashboard({
   adminUsuarioId,
   pedidosIniciales,
   kardexInicial,
-  productosStock,
+  productosStock: stockInicial,
 }: Props) {
   const [pedidos, setPedidos] = useState<PedidoDashboard[]>(pedidosIniciales);
-  const [kardex] = useState<MovimientoKardex[]>(kardexInicial);
+  const [kardex, setKardex] = useState<MovimientoKardex[]>(kardexInicial);
+  const [productosStock, setProductosStock] = useState(stockInicial);
+  const solicitudInventario = React.useRef(0);
+  const refrescarInventario = React.useCallback(async () => {
+    const solicitud = ++solicitudInventario.current;
+    try {
+      const respuesta = await fetch('/api/inventario/stock?kardex=1');
+      if (!respuesta.ok) return;
+      const { stock, kardex: movimientos } = await respuesta.json() as {
+        stock: { producto_id: number; stock_actual: number; stock_minimo: number }[];
+        kardex: (Omit<MovimientoKardex, 'producto_nombre'> & { productos: { nombre: string } | null })[];
+      };
+      if (solicitud !== solicitudInventario.current) return;
+      const porProducto = new Map(stock.map((fila) => [fila.producto_id, fila]));
+      setProductosStock((prev) => prev.map((producto) => {
+        const fila = porProducto.get(producto.id);
+        return fila ? { ...producto, stock_actual: fila.stock_actual, stock_minimo: fila.stock_minimo } : producto;
+      }));
+      setKardex(movimientos.map(({ productos, ...movimiento }) => ({
+        ...movimiento,
+        producto_nombre: productos?.nombre || 'Producto',
+        motivo: movimiento.motivo || 'Sin observación',
+      })));
+    } catch (error) {
+      console.error('No se pudo actualizar el inventario del panel:', error);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const refrescar = () => {
+      if (document.visibilityState === 'visible') void refrescarInventario();
+    };
+    const intervalo = window.setInterval(refrescar, 15_000);
+    window.addEventListener('focus', refrescar);
+    return () => {
+      window.clearInterval(intervalo);
+      window.removeEventListener('focus', refrescar);
+      solicitudInventario.current++;
+    };
+  }, [refrescarInventario]);
 
   // Estados de Modales
   const [pedidoAAnular, setPedidoAAnular] = useState<PedidoDashboard | null>(null);
@@ -133,6 +172,7 @@ export default function AdminDashboard({
         );
         setPedidoAAnular(null);
         setMotivoAnulacion('');
+        void refrescarInventario();
         return `Comanda #${pedidoAAnular.id} anulada con éxito`;
       },
       error: (err) => err.message,
@@ -156,6 +196,7 @@ export default function AdminDashboard({
       success: () => {
         setModalAjusteAbierto(false);
         setMotivoAjuste('');
+        void refrescarInventario();
         return 'Movimiento registrado en Kardex';
       },
       error: (err) => err.message,

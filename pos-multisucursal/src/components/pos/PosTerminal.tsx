@@ -117,6 +117,38 @@ export default function PosTerminal({
   const [abriendoCaja, setAbriendoCaja] = useState(false);
 
   const [productos, setProductos] = useState<ProductoPOS[]>(productosIniciales);
+  const solicitudStockRef = React.useRef(0);
+  const actualizarStock = React.useCallback(async () => {
+    const solicitud = ++solicitudStockRef.current;
+    try {
+      const respuesta = await fetch('/api/inventario/stock');
+      if (!respuesta.ok) return;
+      const { stock } = await respuesta.json() as {
+        stock: { producto_id: number; stock_actual: number; stock_minimo: number }[];
+      };
+      if (solicitud !== solicitudStockRef.current) return;
+      const porProducto = new Map(stock.map((fila) => [fila.producto_id, fila]));
+      setProductos((prev) => prev.map((producto) => {
+        const fila = porProducto.get(producto.id);
+        return fila ? { ...producto, stock_actual: fila.stock_actual, stock_minimo: fila.stock_minimo } : producto;
+      }));
+    } catch (error) {
+      console.error('No se pudo actualizar el stock del POS:', error);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    const refrescar = () => {
+      if (document.visibilityState === 'visible') void actualizarStock();
+    };
+    const intervalo = window.setInterval(refrescar, 15_000);
+    window.addEventListener('focus', refrescar);
+    return () => {
+      window.clearInterval(intervalo);
+      window.removeEventListener('focus', refrescar);
+      solicitudStockRef.current++;
+    };
+  }, [actualizarStock]);
   const [categoriaActiva, setCategoriaActiva] = useState<number | 'TODAS'>('TODAS');
   const [busqueda, setBusqueda] = useState('');
 
@@ -537,11 +569,12 @@ export default function PosTerminal({
         .map((item) => {
           if (item.clave !== clave) return item;
           const nuevaCant = item.cantidad + delta;
-          if (nuevaCant > 0) {
+          if (delta > 0) {
             // El stock se descuenta por producto: se suman todas sus líneas
             const totalConCambio = totalEnCarrito(item.id, prev) - item.cantidad + nuevaCant;
-            if (totalConCambio > item.stock_actual) {
-              toast.warning(`Solo quedan ${item.stock_actual} porciones disponibles`);
+            const stockActual = productos.find((producto) => producto.id === item.id)?.stock_actual ?? item.stock_actual;
+            if (totalConCambio > stockActual) {
+              toast.warning(`Solo quedan ${stockActual} unidades disponibles`);
               return item;
             }
           }
@@ -660,17 +693,6 @@ export default function PosTerminal({
       }
       cargarProximaFicha(snapshotCajaId);
 
-      setProductos((prev) =>
-        prev.map((prod) => {
-          const vendido = snapshotCarrito
-            .filter((c) => c.id === prod.id)
-            .reduce((acc, c) => acc + c.cantidad, 0);
-          return vendido
-            ? { ...prod, stock_actual: Math.max(0, prod.stock_actual - vendido) }
-            : prod;
-        })
-      );
-
       // Armar el comprobante térmico con el ID emitido
       const datosTicket: TicketData = {
         pedidoId,
@@ -722,6 +744,7 @@ export default function PosTerminal({
       finally: () => {
         procesandoRef.current = false;
         setProcesando(false);
+        void actualizarStock();
       },
     });
   };
@@ -1538,9 +1561,7 @@ export default function PosTerminal({
         cajaActualId={cajaId}
         usuarioId={usuarioId}
         productosCatalogo={productos}
-        onPedidoModificado={() => {
-          // Si se editó o anuló un pedido, se puede recargar catálogo
-        }}
+        onPedidoModificado={actualizarStock}
       />
 
       {/* Ticket térmico */}

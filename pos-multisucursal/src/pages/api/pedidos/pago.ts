@@ -50,40 +50,13 @@ export const POST: APIRoute = async ({ request, cookies }) => {
 
     if (pedidoError) throw new Error(`No se pudo validar el pedido: ${pedidoError.message}`);
     if (!pedido) return responder({ ok: false, error: 'El pedido no existe en tu sucursal o caja.' }, 404);
-    if (pedido.estado === 'PAGADO') return responder({ ok: true, pedido_id: pedidoId, ya_pagado: true }, 200);
-    if (pedido.estado !== 'PENDIENTE') {
+    if (pedido.estado !== 'PENDIENTE' && pedido.estado !== 'PAGADO') {
       return responder({ ok: false, error: `No se puede cobrar un pedido con estado ${pedido.estado}.` }, 400);
     }
 
     const subtotal = Number(pedido.subtotal);
     if (!Number.isFinite(subtotal) || descuento > subtotal) {
       return responder({ ok: false, error: 'El descuento supera el subtotal del pedido.' }, 400);
-    }
-
-    const { data: caja, error: cajaError } = await supabaseAdminServer
-      .from('apertura_cajas')
-      .select('id')
-      .eq('id', aperturaCajaId)
-      .eq('sucursal_id', usuario.sucursalId)
-      .eq('estado', 'ABIERTA')
-      .maybeSingle();
-
-    if (cajaError) throw new Error(`No se pudo validar la caja: ${cajaError.message}`);
-    if (!caja) return responder({ ok: false, error: 'La caja está cerrada. No se puede registrar el pago.' }, 400);
-
-    if (descuento > 0) {
-      const { error: descuentoError } = await supabaseAdminServer
-        .from('pedidos')
-        .update({ descuento, updated_at: new Date().toISOString() })
-        .eq('id', pedidoId)
-        .eq('estado', 'PENDIENTE');
-
-      if (descuentoError) {
-        return responder(
-          { ok: false, pedido_id: pedidoId, error: `No se pudo aplicar el descuento: ${descuentoError.message}` },
-          400
-        );
-      }
     }
 
     const total = Math.max(0, subtotal - descuento);
@@ -94,6 +67,7 @@ export const POST: APIRoute = async ({ request, cookies }) => {
       p_metodo: metodo,
       p_monto: total,
       p_referencia_pago: referencia || null,
+      p_descuento: descuento,
     });
 
     if (error) {
